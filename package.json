@@ -1,0 +1,30 @@
+{
+  "name": "geovis-mobile",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "type-check": "vue-tsc --noEmit"
+  },
+  "dependencies": {
+    "@vue-leaflet/vue-leaflet": "^0.10.1",
+    "d3": "^7.9.0",
+    "leaflet": "^1.9.4",
+    "pinia": "^2.2.6",
+    "pinia-plugin-persistedstate": "^4.1.2",
+    "vant": "^4.9.24",
+    "vite-svg-loader": "^5.1.1",
+    "vue": "^3.5.34",
+    "vue-router": "^4.6.4"
+  },
+  "devDependencies": {
+    "@types/leaflet": "^1.9.21",
+    "@vitejs/plugin-vue": "^6.0.6",
+    "typescript": "^6.0.3",
+    "vite": "^8.0.12",
+    "vue-tsc": "^3.3.3"
+  }
+}
