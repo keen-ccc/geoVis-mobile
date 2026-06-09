@@ -50,5 +50,21 @@ export const useGridSelectorStore = defineStore('gridSelector', {
       return (id) => state.grids.has(id);
     }
   },
-  persist : true
+  persist : {
+    serializer: {
+      serialize: (state) => {
+        return JSON.stringify({
+          ...state,
+          grids: Array.from(state.grids.entries())
+        })
+      },
+      deserialize: (raw) => {
+        const parsed = JSON.parse(raw)
+        return {
+          ...parsed,
+          grids: new Map(parsed.grids || [])
+        }
+      }
+    }
+  }
 })
