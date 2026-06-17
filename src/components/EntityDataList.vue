@@ -2,9 +2,11 @@
 import { ref, watch } from 'vue'
 import { useGridSelectorStore } from '@/store/gridSelector'
 import { useEntityFilterStore } from '@/store/entityFilter'
+import { useCollection } from '@/composables/useCollection'
 
 const gridStore = useGridSelectorStore()
 const filterStore = useEntityFilterStore()
+const { isFavorited, toggleFavorite, addFollowUp } = useCollection()
 
 interface EntityItem {
   id: number
@@ -23,6 +25,11 @@ const loading = ref(false)
 // 详情弹窗
 const showDetail = ref(false)
 const currentItem = ref<EntityItem | null>(null)
+
+// 跟进记录
+const showFollowUp = ref(false)
+const followUpItem = ref<EntityItem | null>(null)
+const followUpText = ref('')
 
 // 模拟生成数据
 const mockDataGenerator = (count: number): EntityItem[] => {
@@ -44,7 +51,7 @@ const mockDataGenerator = (count: number): EntityItem[] => {
     const d = String(Math.floor(Math.random() * 28) + 1).padStart(2, '0')
 
     return {
-      id: i + Date.now(),
+      id: i + 1 + gridStore.num * 1000,
       name: `测试经营主体名称${i + 1}`,
       address: `成都市某某区某某街道${i + 1}号`,
       businessscope: '一般项目：技术服务、技术开发、技术咨询、技术交流、技术转让、技术推广；计算机软硬件及辅助设备零售；电子产品销售。（除依法须经批准的项目外，凭营业执照依法自主开展经营活动）',
@@ -71,9 +78,21 @@ const fetchData = () => {
 // 监听网格变化以及全局过滤器的变化
 watch([() => gridStore.num, () => filterStore.entityTypes, () => filterStore.estdateRange], fetchData, { immediate: true, deep: true })
 
-const onCardClick = (item: EntityItem) => {
+function onCardClick(item: EntityItem) {
   currentItem.value = item
   showDetail.value = true
+}
+
+function onFollowUpClick(item: EntityItem) {
+  followUpItem.value = item
+  followUpText.value = ''
+  showFollowUp.value = true
+}
+
+function onFollowUpSave() {
+  if (!followUpText.value.trim() || !followUpItem.value) return
+  addFollowUp(followUpItem.value.id, followUpItem.value.name, followUpItem.value.address, followUpText.value)
+  showFollowUp.value = false
 }
 </script>
 
@@ -93,9 +112,9 @@ const onCardClick = (item: EntityItem) => {
         <span class="count-text">共找到 {{ entityData.length }} 家主体</span>
       </div>
       
-      <div 
-        v-for="item in entityData" 
-        :key="item.id" 
+      <div
+        v-for="item in entityData"
+        :key="item.id"
         class="data-card"
         @click="onCardClick(item)"
       >
@@ -105,7 +124,7 @@ const onCardClick = (item: EntityItem) => {
             {{ item.isCustomer ? '已合作客户' : '潜在客户' }}
           </van-tag>
         </div>
-        
+
         <div class="card-tags">
           <van-tag type="primary" color="#f0f7ff" text-color="#1989fa">{{ item.entityType }}</van-tag>
           <van-tag type="primary" color="#f0f7ff" text-color="#1989fa">{{ item.hyclass }}</van-tag>
@@ -114,9 +133,59 @@ const onCardClick = (item: EntityItem) => {
         <p class="card-address">
           <van-icon name="location-o" /> {{ item.address }}
         </p>
-        <p class="card-date">成立日期：{{ item.estdate }}</p>
+        <div class="card-bottom">
+          <p class="card-date">成立日期：{{ item.estdate }}</p>
+          <div class="card-actions">
+            <van-button
+              :type="isFavorited(item.id) ? 'warning' : 'default'"
+              :icon="isFavorited(item.id) ? 'star' : 'star-o'"
+              size="small"
+              round
+              @click.stop="toggleFavorite(item)"
+            />
+            <van-button
+              type="primary"
+              size="small"
+              round
+              @click.stop="onFollowUpClick(item)"
+            >
+              跟进
+            </van-button>
+          </div>
+        </div>
       </div>
     </div>
+
+    <!-- 跟进记录页 -->
+    <van-popup
+      v-model:show="showFollowUp"
+      position="right"
+      :style="{ width: '100%', height: '100%' }"
+      teleport="body"
+    >
+      <div v-if="followUpItem" class="followup-page">
+        <van-nav-bar
+          title="跟进记录"
+          left-text="返回"
+          left-arrow
+          @click-left="showFollowUp = false"
+        />
+        <div class="followup-header">
+          <h3>{{ followUpItem.name }}</h3>
+          <p><van-icon name="location-o" /> {{ followUpItem.address }}</p>
+        </div>
+        <div class="followup-body">
+          <textarea
+            v-model="followUpText"
+            class="followup-textarea"
+            placeholder="请输入跟进结果、拜访记录等内容..."
+          ></textarea>
+        </div>
+        <div class="followup-footer">
+          <van-button type="primary" block round @click="onFollowUpSave">完成</van-button>
+        </div>
+      </div>
+    </van-popup>
 
     <!-- 详情弹窗 -->
     <van-popup
@@ -191,10 +260,10 @@ const onCardClick = (item: EntityItem) => {
 
 .data-card {
   background: #fff;
-  border-radius: 8px;
+  border-radius: 4px;
   padding: 16px;
   margin-bottom: 12px;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+  box-shadow: 0 1px 4px rgba(0,0,0,0.04);
   border: 1px solid #f5f6f7;
   transition: all 0.2s;
 }
@@ -228,7 +297,7 @@ const onCardClick = (item: EntityItem) => {
 }
 
 .card-address, .card-date {
-  margin: 0 0 4px;
+  margin: 0;
   font-size: 12px;
   color: #969799;
   display: flex;
@@ -236,8 +305,76 @@ const onCardClick = (item: EntityItem) => {
   gap: 4px;
 }
 
-.card-date {
-  margin-bottom: 0;
+.card-bottom {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 8px;
+}
+
+.card-actions {
+  display: flex;
+  gap: 6px;
+}
+
+/* Follow-up page */
+.followup-page {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: #f7f8fa;
+}
+
+.followup-header {
+  padding: 16px;
+  background: #fff;
+  border-bottom: 1px solid #ebedf0;
+}
+
+.followup-header h3 {
+  margin: 0 0 4px;
+  font-size: 16px;
+  color: #323233;
+}
+
+.followup-header p {
+  margin: 0;
+  font-size: 12px;
+  color: #969799;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.followup-body {
+  flex: 1;
+  padding: 12px 16px;
+}
+
+.followup-textarea {
+  width: 100%;
+  height: 100%;
+  min-height: 200px;
+  padding: 12px;
+  border: 1px solid #ebedf0;
+  border-radius: 8px;
+  font-size: 14px;
+  line-height: 1.6;
+  color: #323233;
+  resize: none;
+  outline: none;
+  font-family: inherit;
+}
+
+.followup-textarea:focus {
+  border-color: #1989fa;
+}
+
+.followup-footer {
+  padding: 12px 16px;
+  padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+  background: #fff;
+  border-top: 1px solid #ebedf0;
 }
 
 /* Detail Popup */

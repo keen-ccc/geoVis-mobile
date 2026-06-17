@@ -3,13 +3,17 @@ import { ref, provide, computed } from 'vue'
 import TopActionBar from './TopActionBar.vue'
 import MobileMap from './MobileMap.vue'
 import BottomPanel from './BottomPanel.vue'
+import MinePage from './MinePage.vue'
 
 const mapRef = ref<InstanceType<typeof MobileMap> | null>(null)
 provide('mapRef', mapRef)
 
-// Bottom panel drag state: 0 = collapsed, 1 = half, 2 = full
+// Tab bar
+const activeTab = ref('home')
+
+// Bottom panel drag state
 const panelState = ref(0)
-const snapHeights = [0.12, 0.42, 0.72]  // % of viewport height
+const snapHeights = [0.12, 0.42, 0.72]
 const panelHeight = computed(() => snapHeights[panelState.value])
 
 // Touch drag
@@ -22,7 +26,7 @@ function onTouchStart(e: TouchEvent) {
 }
 
 function onTouchMove(e: TouchEvent) {
-  const dy = startY - e.touches[0].clientY  // positive = move up
+  const dy = startY - e.touches[0].clientY
   const threshold = window.innerHeight * 0.08
   if (dy > threshold && panelState.value < 2) {
     panelState.value = startState + 1
@@ -42,24 +46,33 @@ function togglePanel() {
 
 <template>
   <div class="main-layout">
-    <TopActionBar class="top-bar" />
-    <div class="map-area" :style="{ height: `${100 - panelHeight * 100}%` }">
-      <MobileMap ref="mapRef" />
-    </div>
-    <div
-      class="bottom-panel-wrapper"
-      :style="{ height: `${panelHeight * 100}%` }"
-    >
-      <div
-        class="panel-handle"
-        @touchstart.prevent="onTouchStart"
-        @touchmove.prevent="onTouchMove"
-        @click="togglePanel"
-      >
-        <div class="handle-bar"></div>
+    <!-- 首页 -->
+    <template v-if="activeTab === 'home'">
+      <TopActionBar class="top-bar" />
+      <div class="map-area" :style="{ height: `${100 - panelHeight * 100}%` }">
+        <MobileMap ref="mapRef" />
       </div>
-      <BottomPanel class="panel-content" />
-    </div>
+      <div class="bottom-panel-wrapper" :style="{ height: `${panelHeight * 100}%` }">
+        <div
+          class="panel-handle"
+          @touchstart.prevent="onTouchStart"
+          @touchmove.prevent="onTouchMove"
+          @click="togglePanel"
+        >
+          <div class="handle-bar"></div>
+        </div>
+        <BottomPanel class="panel-content" />
+      </div>
+    </template>
+
+    <!-- 我的 -->
+    <MinePage v-else />
+
+    <!-- Tab bar -->
+    <van-tabbar v-model="activeTab" :fixed="false" active-color="#1989fa">
+      <van-tabbar-item name="home" icon="home-o">首页</van-tabbar-item>
+      <van-tabbar-item name="mine" icon="user-o">我的</van-tabbar-item>
+    </van-tabbar>
   </div>
 </template>
 
