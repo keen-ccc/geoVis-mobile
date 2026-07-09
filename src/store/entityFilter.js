@@ -3,7 +3,8 @@ import { defineStore } from 'pinia'
 export const useEntityFilterStore = defineStore('entityFilter', {
   state: () => ({
     estdateRange: null,
-    entityTypes: []
+    entityTypes: [],
+    businessType: ''
   }),
   actions: {
     setEstdateRange(range) {
@@ -11,6 +12,9 @@ export const useEntityFilterStore = defineStore('entityFilter', {
     },
     setEntityTypes(types) {
       this.entityTypes = Array.isArray(types) ? types : []
+    },
+    setBusinessType(type) {
+      this.businessType = type
     }
   }
 })

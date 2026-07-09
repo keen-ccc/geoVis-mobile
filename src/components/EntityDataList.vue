@@ -17,6 +17,7 @@ interface EntityItem {
   entityType: string
   estdate: string
   isCustomer: boolean
+  businessTypes: string[]
 }
 
 const entityData = ref<EntityItem[]>([])
@@ -31,7 +32,20 @@ const showFollowUp = ref(false)
 const followUpItem = ref<EntityItem | null>(null)
 const followUpText = ref('')
 
+// 业务类型筛选
+const activeBusiness = ref('')
+const businessOptions = [
+  { text: '全部业务', value: '' },
+  { text: '定期', value: '定期' },
+  { text: '理财', value: '理财' },
+  { text: '基金', value: '基金' },
+  { text: '保险', value: '保险' },
+  { text: '信用卡', value: '信用卡' }
+]
+
 // 模拟生成数据
+const businessPool = ['定期', '理财', '基金', '保险', '信用卡']
+
 const mockDataGenerator = (count: number): EntityItem[] => {
   const hyClasses = ['科学研究和技术服务业', '批发和零售业', '住宿和餐饮业', '制造业', '建筑业']
   
@@ -50,6 +64,11 @@ const mockDataGenerator = (count: number): EntityItem[] => {
     const m = String(Math.floor(Math.random() * 12) + 1).padStart(2, '0')
     const d = String(Math.floor(Math.random() * 28) + 1).padStart(2, '0')
 
+    // 邮政客户随机生成1~3个业务标签
+    const businessTypes = isCust
+      ? businessPool.filter(() => Math.random() > 0.5).slice(0, Math.floor(Math.random() * 3) + 1)
+      : []
+
     return {
       id: i + 1 + gridStore.num * 1000,
       name: `测试经营主体名称${i + 1}`,
@@ -58,7 +77,8 @@ const mockDataGenerator = (count: number): EntityItem[] => {
       hyclass: hyClasses[Math.floor(Math.random() * hyClasses.length)],
       entityType: typeOptions[Math.floor(Math.random() * typeOptions.length)],
       estdate: `${y}-${m}-${d}`,
-      isCustomer: isCust
+      isCustomer: isCust,
+      businessTypes
     }
   })
 }
@@ -70,13 +90,21 @@ const fetchData = () => {
   }
   loading.value = true
   setTimeout(() => {
-    entityData.value = mockDataGenerator(Math.floor(Math.random() * 10) + 5)
+    const allData = mockDataGenerator(Math.floor(Math.random() * 10) + 5)
+    // 按业务类型筛选
+    if (activeBusiness.value) {
+      entityData.value = allData.filter(item =>
+        item.isCustomer && item.businessTypes.includes(activeBusiness.value)
+      )
+    } else {
+      entityData.value = allData
+    }
     loading.value = false
   }, 400)
 }
 
 // 监听网格变化以及全局过滤器的变化
-watch([() => gridStore.num, () => filterStore.entityTypes, () => filterStore.estdateRange], fetchData, { immediate: true, deep: true })
+watch([() => gridStore.num, () => filterStore.entityTypes, () => filterStore.estdateRange, activeBusiness], fetchData, { immediate: true, deep: true })
 
 function onCardClick(item: EntityItem) {
   currentItem.value = item
@@ -98,6 +126,13 @@ function onFollowUpSave() {
 
 <template>
   <div class="entity-data">
+    <!-- 业务类型筛选栏 -->
+    <div class="filter-bar" v-if="gridStore.num > 0 && !loading">
+      <van-dropdown-menu active-color="#1989fa">
+        <van-dropdown-item v-model="activeBusiness" :options="businessOptions" />
+      </van-dropdown-menu>
+    </div>
+
     <div v-if="gridStore.num === 0" class="empty-state">
       <van-icon name="notes-o" size="36" color="#c8c9cc" />
       <p>请在网格中选择区域查看市场主体数据</p>
@@ -121,13 +156,22 @@ function onFollowUpSave() {
         <div class="card-title-row">
           <h4 class="card-title">{{ item.name }}</h4>
           <van-tag :type="item.isCustomer ? 'success' : 'primary'" plain>
-            {{ item.isCustomer ? '已合作客户' : '潜在客户' }}
+            {{ item.isCustomer ? '邮政客户' : '非邮政客户' }}
           </van-tag>
         </div>
 
         <div class="card-tags">
           <van-tag type="primary" color="#f0f7ff" text-color="#1989fa">{{ item.entityType }}</van-tag>
           <van-tag type="primary" color="#f0f7ff" text-color="#1989fa">{{ item.hyclass }}</van-tag>
+          <template v-if="item.isCustomer && item.businessTypes.length > 0">
+            <van-tag
+              v-for="bt in item.businessTypes"
+              :key="bt"
+              type="warning"
+              color="#fff7e6"
+              text-color="#fa8c16"
+            >{{ bt }}</van-tag>
+          </template>
         </div>
 
         <p class="card-address">
@@ -200,10 +244,17 @@ function onFollowUpSave() {
         
         <div class="detail-tags">
           <van-tag :type="currentItem.isCustomer ? 'success' : 'default'">
-            {{ currentItem.isCustomer ? '合作客户' : '潜在客户' }}
+            {{ currentItem.isCustomer ? '邮政客户' : '非邮政客户' }}
           </van-tag>
           <van-tag plain type="primary">{{ currentItem.entityType }}</van-tag>
           <van-tag plain type="primary">{{ currentItem.hyclass }}</van-tag>
+          <template v-if="currentItem.isCustomer && currentItem.businessTypes.length > 0">
+            <van-tag
+              v-for="bt in currentItem.businessTypes"
+              :key="bt"
+              type="warning"
+            >{{ bt }}</van-tag>
+          </template>
         </div>
 
         <div class="detail-section">
@@ -230,6 +281,11 @@ function onFollowUpSave() {
   height: 100%;
   display: flex;
   flex-direction: column;
+}
+
+.filter-bar {
+  flex-shrink: 0;
+  border-bottom: 1px solid #f5f6f7;
 }
 
 .empty-state, .loading-state {
