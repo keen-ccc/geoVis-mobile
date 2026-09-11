@@ -44,9 +44,11 @@ function goBack() {
 
 <style scoped>
 .mine-page {
-  height: 100%;
+  flex: 1;
+  min-height: 0;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
   background: #f7f8fa;
 }
 

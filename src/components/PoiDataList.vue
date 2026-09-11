@@ -1,8 +1,18 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { ref, watch, computed } from 'vue'
 import { useGridSelectorStore } from '@/store/gridSelector'
+import { useRegionSelectorStore } from '@/store/regionSelector'
 
 const gridStore = useGridSelectorStore()
+const regionStore = useRegionSelectorStore()
+
+const hasSelection = computed(() => {
+  return regionStore.hasSelection || gridStore.num > 0
+})
+
+const emptyMessage = computed(() => {
+  return '请选择区域或网格查看商业POI数据'
+})
 
 interface PoiItem {
   id: number
@@ -44,7 +54,7 @@ const mockPoiGenerator = (count: number, type: string): PoiItem[] => {
 }
 
 const fetchData = () => {
-  if (gridStore.num === 0) {
+  if (!hasSelection.value) {
     poiData.value = []
     return
   }
@@ -55,7 +65,7 @@ const fetchData = () => {
   }, 300)
 }
 
-watch([() => gridStore.num, activeIndustry], fetchData, { immediate: true })
+watch([() => gridStore.num, () => regionStore.hasSelection, () => regionStore.areaPath, activeIndustry], fetchData, { immediate: true, deep: true })
 
 const onCardClick = (item: PoiItem) => {
   currentItem.value = item
@@ -66,15 +76,15 @@ const onCardClick = (item: PoiItem) => {
 <template>
   <div class="poi-data">
     <!-- 筛选栏 -->
-    <div class="filter-bar" v-if="gridStore.num > 0">
+    <div class="filter-bar" v-if="hasSelection">
       <van-dropdown-menu active-color="#1989fa">
         <van-dropdown-item v-model="activeIndustry" :options="industryOptions" />
       </van-dropdown-menu>
     </div>
 
-    <div v-if="gridStore.num === 0" class="empty-state">
+    <div v-if="!hasSelection" class="empty-state">
       <van-icon name="location-o" size="36" color="#c8c9cc" />
-      <p>请在网格中选择区域查看商业POI数据</p>
+      <p>{{ emptyMessage }}</p>
     </div>
     
     <div v-else-if="loading" class="loading-state">

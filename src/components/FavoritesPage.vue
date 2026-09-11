@@ -44,9 +44,11 @@ const { favorites, toggleFavorite } = useCollection()
 
 <style scoped>
 .favorites-page {
-  height: 100%;
+  flex: 1;
+  min-height: 0;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
   background: #f7f8fa;
 }
 
@@ -63,7 +65,11 @@ const { favorites, toggleFavorite } = useCollection()
 .empty p { margin-top: 12px; }
 
 .list {
+  flex: 1;
   padding: 12px 16px;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-y;
 }
 
 .fav-card {
