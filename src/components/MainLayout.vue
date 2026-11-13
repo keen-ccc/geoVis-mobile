@@ -10,6 +10,7 @@ provide('mapRef', mapRef)
 
 // Tab bar
 const activeTab = ref('home')
+const offlineDemo = import.meta.env.VITE_OFFLINE_DEMO === 'true'
 
 // Bottom panel drag state
 const panelState = ref(0)
@@ -19,14 +20,17 @@ const panelHeight = computed(() => snapHeights[panelState.value])
 // Touch drag
 let startY = 0
 let startState = 0
+let touchMoved = false
 
 function onTouchStart(e: TouchEvent) {
   startY = e.touches[0].clientY
   startState = panelState.value
+  touchMoved = false
 }
 
 function onTouchMove(e: TouchEvent) {
   const dy = startY - e.touches[0].clientY
+  if (Math.abs(dy) > 8) touchMoved = true
   const threshold = window.innerHeight * 0.08
   if (dy > threshold && panelState.value < 2) {
     panelState.value = startState + 1
@@ -39,6 +43,15 @@ function onTouchMove(e: TouchEvent) {
   }
 }
 
+function onTouchEnd() {
+  // touchstart.prevent suppresses the browser's synthetic click on phones.
+  if (!touchMoved) togglePanel()
+}
+
+function onTouchCancel() {
+  touchMoved = true
+}
+
 function togglePanel() {
   panelState.value = panelState.value === 0 ? 1 : 0
 }
@@ -46,6 +59,9 @@ function togglePanel() {
 
 <template>
   <div class="main-layout">
+    <div v-if="offlineDemo" class="deployment-notice" role="status">
+      收藏和跟进保存到数据库，当前所有使用者共享。主体经纬度和商业 POI 数据待补充。
+    </div>
     <!-- 首页 -->
     <template v-if="activeTab === 'home'">
       <TopActionBar class="top-bar" />
@@ -57,6 +73,8 @@ function togglePanel() {
           class="panel-handle"
           @touchstart.prevent="onTouchStart"
           @touchmove.prevent="onTouchMove"
+          @touchend.prevent="onTouchEnd"
+          @touchcancel="onTouchCancel"
           @click="togglePanel"
         >
           <div class="handle-bar"></div>
@@ -90,6 +108,15 @@ function togglePanel() {
   flex-shrink: 0;
   position: relative;
   z-index: 1000;
+}
+
+.deployment-notice {
+  flex-shrink: 0;
+  padding: 6px 12px;
+  background: #fff4d6;
+  color: #664500;
+  font-size: 12px;
+  line-height: 1.5;
 }
 
 .map-area {

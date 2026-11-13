@@ -2,7 +2,7 @@
 import { useCollection } from '@/composables/useCollection'
 
 defineEmits(['back'])
-const { favorites, toggleFavorite } = useCollection()
+const { favorites, toggleFavorite, collectionError, collectionLoading, refreshCollections } = useCollection()
 </script>
 
 <template>
@@ -14,7 +14,12 @@ const { favorites, toggleFavorite } = useCollection()
       @click-left="$emit('back')"
     />
 
-    <div v-if="favorites.length === 0" class="empty">
+    <div v-if="collectionError" class="empty">
+      <p>{{ collectionError }}</p>
+      <van-button size="small" @click="refreshCollections().catch(() => {})">重新加载</van-button>
+    </div>
+    <div v-else-if="collectionLoading" class="empty"><van-loading>加载中</van-loading></div>
+    <div v-else-if="favorites.length === 0" class="empty">
       <van-icon name="star-o" size="48" color="#c8c9cc" />
       <p>暂无收藏</p>
     </div>
@@ -25,8 +30,8 @@ const { favorites, toggleFavorite } = useCollection()
           <h4>{{ item.name }}</h4>
           <p><van-icon name="location-o" /> {{ item.address }}</p>
           <div class="fav-tags">
-            <van-tag plain type="primary" size="mini">{{ item.entityType }}</van-tag>
-            <van-tag plain size="mini">{{ item.hyclass }}</van-tag>
+            <van-tag plain type="primary">{{ item.entityType }}</van-tag>
+            <van-tag plain>{{ item.hyclass }}</van-tag>
           </div>
           <span class="fav-time">{{ item.addedAt }}</span>
         </div>

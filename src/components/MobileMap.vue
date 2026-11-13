@@ -45,7 +45,9 @@ const loading = ref(false)
 
 // --- Constants ---
 const defaultCenter: [number, number] = [30.659462, 104.065735]  // 成都 (GCJ-02)
-const tileUrl = 'https://webrd04.is.autonavi.com/appmaptile?lang=zh_cn&size=1&scale=1&style=7&x={x}&y={y}&z={z}'
+const tileUrl = import.meta.env.VITE_OFFLINE_DEMO === 'true'
+  ? ''
+  : 'https://webrd04.is.autonavi.com/appmaptile?lang=zh_cn&size=1&scale=1&style=7&x={x}&y={y}&z={z}'
 const TILE_MAX_ZOOM = 17
 const TILE_MIN_ZOOM = 5
 const GRID_COLOR = '#377eb8'
@@ -127,7 +129,9 @@ function initMap(): void {
     attributionControl: false
   })
 
-  L.tileLayer(tileUrl, { maxZoom: TILE_MAX_ZOOM, minZoom: TILE_MIN_ZOOM }).addTo(map)
+  if (tileUrl) {
+    L.tileLayer(tileUrl, { maxZoom: TILE_MAX_ZOOM, minZoom: TILE_MIN_ZOOM }).addTo(map)
+  }
 
   // D3 SVG for dots
   dotSvg = d3.select(map.getPanes().overlayPane).append('svg')

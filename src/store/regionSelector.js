@@ -12,13 +12,13 @@ import { ref, computed } from 'vue'
  */
 export const useRegionSelectorStore = defineStore('regionSelector', () => {
   /** 当前选中的省份，如 '四川省' */
-  const province = ref(null)
+  const province = ref(/** @type {string | null} */ (null))
   /** 当前选中的城市，如 '成都市' */
-  const city = ref(null)
+  const city = ref(/** @type {string | null} */ (null))
   /** 当前选中的区县，如 '锦江区' */
-  const county = ref(null)
+  const county = ref(/** @type {string | null} */ (null))
   /** 当前选中的网点，{ name, lon, lat, address } */
-  const outlet = ref(null)
+  const outlet = ref(/** @type {{name: string, lon: number, lat: number, address: string} | null} */ (null))
 
   /** 显示用的标签 */
   const label = computed(() => {

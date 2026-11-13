@@ -4,19 +4,19 @@ import { useCollection } from '@/composables/useCollection'
 import { maskName, maskPhone } from '@/utils/mask'
 
 defineEmits(['back'])
-const { followUps, removeFollowUp, downloadFollowUpsCSV } = useCollection()
+const { followUps, removeFollowUp, downloadFollowUpsCSV, collectionError, collectionLoading, refreshCollections } = useCollection()
 
 // 展开/折叠状态管理
-const expandedIds = ref<Set<number>>(new Set())
+const expandedIds = ref<Set<string>>(new Set())
 
-function toggleExpand(id: number) {
+function toggleExpand(id: string) {
   const s = new Set(expandedIds.value)
   if (s.has(id)) s.delete(id)
   else s.add(id)
   expandedIds.value = s
 }
 
-function isExpanded(id: number): boolean {
+function isExpanded(id: string): boolean {
   return expandedIds.value.has(id)
 }
 
@@ -91,7 +91,12 @@ function getSummary(record: any): string {
       </template>
     </van-nav-bar>
 
-    <div v-if="followUps.length === 0" class="empty">
+    <div v-if="collectionError" class="empty">
+      <p>{{ collectionError }}</p>
+      <van-button size="small" @click="refreshCollections().catch(() => {})">重新加载</van-button>
+    </div>
+    <div v-else-if="collectionLoading" class="empty"><van-loading>加载中</van-loading></div>
+    <div v-else-if="followUps.length === 0" class="empty">
       <van-icon name="records-o" size="48" color="#c8c9cc" />
       <p>暂无跟进记录</p>
     </div>

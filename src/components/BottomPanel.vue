@@ -103,7 +103,7 @@ function onSearchBlur() {
         >
           <div class="result-name">{{ dot.name }}</div>
           <div class="result-meta">
-            <van-tag :type="dot.type === '银行' ? 'primary' : 'warning'" size="mini">
+            <van-tag :type="dot.type === '银行' ? 'primary' : 'warning'">
               {{ dot.type }}
             </van-tag>
             <span class="result-addr">{{ dot.address }}</span>

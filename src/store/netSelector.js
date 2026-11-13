@@ -3,7 +3,7 @@ import { defineStore } from "pinia";
 export const useNetSelectorStore = defineStore("netSelector", {
     state:()=>{
         return {
-            selectedNet:null,//选中的邮政网点，{name,address,lon,lat}
+            selectedNet: /** @type {{name: string, address: string, lon: number, lat: number} | null} */ (null),
             range:1000,//搜索范围,单位米
             gridSize:300,//网格大小，单位米
         }

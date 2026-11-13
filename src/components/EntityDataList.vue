@@ -1,51 +1,136 @@
 <script setup lang="ts">
-import { ref, watch, computed } from 'vue'
+import { ref, watch, computed, onBeforeUnmount } from 'vue'
 import { useGridSelectorStore } from '@/store/gridSelector'
 import { useEntityFilterStore } from '@/store/entityFilter'
 import { useRegionSelectorStore } from '@/store/regionSelector'
 import { useCollection, VISIT_METHOD_OPTIONS, CONTACT_METHOD_OPTIONS, FOLLOWUP_RESULT_OPTIONS } from '@/composables/useCollection'
 import type { FollowUpFormData } from '@/composables/useCollection'
-import { maskName, maskPhone } from '@/utils/mask'
+import { ApiError, searchEntities, fetchEntityDetail } from '@/services/api'
+import type { EntityDetail, EntitySearchPayload, EntitySummary } from '@/services/api'
 
 const gridStore = useGridSelectorStore()
 const filterStore = useEntityFilterStore()
 const regionStore = useRegionSelectorStore()
 const { isFavorited, toggleFavorite, addFollowUp } = useCollection()
 
-const hasSelection = computed(() => {
-  return regionStore.hasSelection || gridStore.num > 0
+const PAGE_SIZE = 20
+
+const entityData = ref<EntitySummary[]>([])
+const nextCursor = ref<string | null>(null)
+const hasMore = ref(false)
+const loading = ref(false)
+const loadingMore = ref(false)
+const errorMessage = ref('')
+const keyword = ref('')
+
+// 请求序号：筛选快速变化时丢弃过期响应
+let requestSeq = 0
+
+const selectedGrids = computed<Array<[number, number, number, number]>>(() =>
+  Array.from(gridStore.grids.values(), (grid: any) =>
+    [grid.lonStart, grid.latStart, grid.lonEnd, grid.latEnd]))
+
+const queryBlock = computed(() => {
+  if (!regionStore.hasSelection && selectedGrids.value.length === 0) {
+    return '请选择区域或网格查看市场主体数据'
+  }
+  if (selectedGrids.value.length > 50) {
+    return '单次最多查询 50 个网格，请减少选择的网格数量'
+  }
+  if (filterStore.customerType || filterStore.postalServices.length > 0) {
+    return '客户关系及邮政业务数据待接入，暂不能应用这些筛选条件'
+  }
+  return ''
 })
 
-const emptyMessage = computed(() => '请选择区域或网格查看市场主体数据')
-
-interface EntityItem {
-  id: number
-  name: string
-  address: string
-  businessscope: string
-  hyclass: string
-  entityType: string
-  estdate: string
-  isCustomer: boolean
-  businessTypes: string[]
-  registeredCapital: number
-  contactPerson: string
-  contactPhone: string
+function buildPayload(cursor: string | null): EntitySearchPayload {
+  const payload: EntitySearchPayload = { pageSize: PAGE_SIZE }
+  if (selectedGrids.value.length) payload.grids = selectedGrids.value
+  if (regionStore.areaPath) payload.regionPath = regionStore.areaPath
+  if (cursor) payload.cursor = cursor
+  const kw = keyword.value.trim()
+  if (kw) payload.keyword = kw
+  if (filterStore.entityTypes.length > 0) payload.entityTypes = [...filterStore.entityTypes]
+  if (filterStore.industryCodes.length > 0) payload.industryCodes = [...filterStore.industryCodes]
+  const range = filterStore.estdateRange as [string, string] | null
+  if (range && (range[0] || range[1])) payload.estdateRange = [range[0] || '', range[1] || '']
+  if (filterStore.registeredCapital) payload.registeredCapital = filterStore.registeredCapital
+  return payload
 }
 
-const entityData = ref<EntityItem[]>([])
-const loading = ref(false)
+async function load(reset = true) {
+  if (!reset && (!hasMore.value || loadingMore.value)) return
+  const current = ++requestSeq
+  errorMessage.value = ''
+  if (queryBlock.value) {
+    entityData.value = []
+    nextCursor.value = null
+    hasMore.value = false
+    loading.value = false
+    loadingMore.value = false
+    return
+  }
+  if (reset) {
+    loading.value = true
+    loadingMore.value = false
+  } else {
+    loadingMore.value = true
+  }
+  try {
+    const result = await searchEntities(buildPayload(reset ? null : nextCursor.value))
+    if (current !== requestSeq) return
+    entityData.value = reset ? result.items : [...entityData.value, ...result.items]
+    nextCursor.value = result.nextCursor
+    hasMore.value = result.hasMore
+  } catch (error) {
+    if (current !== requestSeq) return
+    errorMessage.value = error instanceof ApiError ? error.message : '查询失败，请稍后重试'
+    if (reset) {
+      entityData.value = []
+      nextCursor.value = null
+      hasMore.value = false
+    }
+  } finally {
+    if (current === requestSeq) {
+      loading.value = false
+      loadingMore.value = false
+    }
+  }
+}
 
-// 详情弹窗
+let searchTimer: ReturnType<typeof setTimeout> | null = null
+function onSearchInput() {
+  if (searchTimer) clearTimeout(searchTimer)
+  searchTimer = setTimeout(() => load(true), 300)
+}
+
+// 详情
 const showDetail = ref(false)
-const currentItem = ref<EntityItem | null>(null)
+const currentItem = ref<EntitySummary | null>(null)
+const detail = ref<EntityDetail | null>(null)
+const detailLoading = ref(false)
+const detailError = ref('')
+
+async function onCardClick(item: EntitySummary) {
+  currentItem.value = item
+  detail.value = null
+  detailError.value = ''
+  showDetail.value = true
+  detailLoading.value = true
+  try {
+    detail.value = await fetchEntityDetail(item.id)
+  } catch (error) {
+    detailError.value = error instanceof ApiError ? error.message : '详情加载失败'
+  } finally {
+    detailLoading.value = false
+  }
+}
 
 // 跟进记录
 const showFollowUp = ref(false)
-const followUpItem = ref<EntityItem | null>(null)
+const followUpItem = ref<EntitySummary | null>(null)
 const followUpText = ref('')
 
-// 结构化跟进表单
 const followForm = ref<FollowUpFormData>({
   visited: null,
   visitMethod: '',
@@ -75,169 +160,96 @@ function resetFollowForm() {
   }
 }
 
-// 模拟生成数据
-const businessPool = ['定期', '理财', '基金', '保险', '信用卡']
-const hyClassPool = [
-  '农、林、牧、渔业', '采矿业', '制造业',
-  '电力、热力、燃气及水生产和供应业', '建筑业',
-  '批发和零售业', '交通运输、仓储和邮政业',
-  '住宿和餐饮业', '信息传输、软件和信息技术服务业',
-  '金融业', '房地产业', '租赁和商务服务业',
-  '科学研究和技术服务业', '水利、环境和公共设施管理业',
-  '居民服务、修理和其他服务业', '教育',
-  '卫生和社会工作', '文化、体育和娱乐业'
-]
-const surnames = ['张', '王', '李', '刘', '陈', '杨', '赵', '黄', '周', '吴', '徐', '孙', '马', '胡', '朱', '郭', '何', '林', '罗', '高']
-const nameChars = ['伟', '芳', '娜', '秀英', '敏', '静', '丽', '强', '磊', '洋', '勇', '艳', '杰', '军', '涛', '明', '超', '华', '平', '刚']
-const capitals = [5, 15, 50, 200, 800, 2000]
-
-function generatePhone(): string {
-  const prefixes = ['138', '139', '136', '158', '159', '188', '177', '186']
-  return prefixes[Math.floor(Math.random() * prefixes.length)] + String(Math.floor(10000000 + Math.random() * 90000000))
-}
-
-function generateName(): string {
-  return surnames[Math.floor(Math.random() * surnames.length)] + nameChars[Math.floor(Math.random() * nameChars.length)]
-}
-
-function formatCapital(c: number): string {
-  if (c >= 10000) return (c / 10000).toFixed(0) + '万'
-  return c + '万'
-}
-
-const mockDataGenerator = (count: number): EntityItem[] => {
-  const typeOptions = filterStore.entityTypes && filterStore.entityTypes.length > 0
-    ? filterStore.entityTypes
-    : ['企业', '个体工商户', '农民专业合作社']
-
-  const hyOptions = filterStore.industryCodes && filterStore.industryCodes.length > 0
-    ? filterStore.industryCodes
-    : hyClassPool
-
-  const [startD, endD] = filterStore.estdateRange || ['', '']
-  const startY = startD ? parseInt(startD.substring(0, 4)) : 2020
-  const endY = endD ? parseInt(endD.substring(0, 4)) : 2023
-
-  const custType = filterStore.customerType
-  const postalServicesFilter = filterStore.postalServices
-  const capitalFilter = filterStore.registeredCapital
-
-  // 根据注册资本筛选，确定可选范围
-  const capitalMap: Record<string, number[]> = {
-    '<10w': [5],
-    '10-100w': [15, 50],
-    '100-500w': [200],
-    '500-1000w': [800],
-    '>1000w': [2000]
-  }
-  const validCapitals = capitalFilter ? (capitalMap[capitalFilter] || capitals) : capitals
-
-  const areaLabel = regionStore.hasSelection
-    ? regionStore.areaPath || '成都市'
-    : '成都市'
-
-  return Array.from({ length: count }, (_, i) => {
-    let isCust = Math.random() > 0.5
-    if (custType === 'postal') isCust = true
-    if (custType === 'non-postal') isCust = false
-
-    const y = Math.floor(Math.random() * (endY - startY + 1)) + startY
-    const m = String(Math.floor(Math.random() * 12) + 1).padStart(2, '0')
-    const d = String(Math.floor(Math.random() * 28) + 1).padStart(2, '0')
-    const area = areaLabel
-
-    let businessTypes: string[]
-    if (isCust) {
-      if (postalServicesFilter.length > 0) {
-        const hasFiltered = postalServicesFilter.filter(() => Math.random() > 0.3)
-        businessTypes = hasFiltered.length > 0 ? hasFiltered : [postalServicesFilter[0]]
-      } else {
-        businessTypes = businessPool.filter(() => Math.random() > 0.5).slice(0, Math.floor(Math.random() * 3) + 1)
-      }
-    } else {
-      businessTypes = []
-    }
-
-    return {
-      id: i + 1 + gridStore.num * 1000 + regionStore.depth * 5000,
-      name: `测试经营主体名称${i + 1}`,
-      address: `${area}某某街道${i + 1}号`,
-      businessscope: '一般项目：技术服务、技术开发、技术咨询、技术交流、技术转让、技术推广；计算机软硬件及辅助设备零售；电子产品销售。（除依法须经批准的项目外，凭营业执照依法自主开展经营活动）',
-      hyclass: hyOptions[Math.floor(Math.random() * hyOptions.length)],
-      entityType: typeOptions[Math.floor(Math.random() * typeOptions.length)],
-      estdate: `${y}-${m}-${d}`,
-      isCustomer: isCust,
-      businessTypes,
-      registeredCapital: validCapitals[Math.floor(Math.random() * validCapitals.length)],
-      contactPerson: generateName(),
-      contactPhone: generatePhone()
-    }
-  })
-}
-
-const fetchData = () => {
-  if (!hasSelection.value) {
-    entityData.value = []
-    return
-  }
-  loading.value = true
-  setTimeout(() => {
-    const allData = mockDataGenerator(Math.floor(Math.random() * 10) + 5)
-    entityData.value = allData
-    loading.value = false
-  }, 400)
-}
-
-watch([
-  () => gridStore.num,
-  () => regionStore.hasSelection,
-  () => regionStore.areaPath,
-  () => filterStore.entityTypes,
-  () => filterStore.estdateRange,
-  () => filterStore.industryCodes,
-  () => filterStore.customerType,
-  () => filterStore.postalServices,
-  () => filterStore.registeredCapital
-], fetchData, { immediate: true, deep: true })
-
-function onCardClick(item: EntityItem) {
-  currentItem.value = item
-  showDetail.value = true
-}
-
-function onFollowUpClick(item: EntityItem) {
+function onFollowUpClick(item: EntitySummary) {
   followUpItem.value = item
   resetFollowForm()
   showFollowUp.value = true
 }
 
-function onFollowUpSave() {
+const savingFollowUp = ref(false)
+async function onFollowUpSave() {
   if (!followUpItem.value) return
-  addFollowUp(
+  if (savingFollowUp.value) return
+  savingFollowUp.value = true
+  const saved = await addFollowUp(
     followUpItem.value.id,
     followUpItem.value.name,
-    followUpItem.value.address,
+    followUpItem.value.address || '',
     followUpText.value,
     { ...followForm.value }
   )
-  showFollowUp.value = false
+  savingFollowUp.value = false
+  if (saved) showFollowUp.value = false
 }
+
+function formatCapital(value: string | null): string {
+  if (value === null || value === '') return '—'
+  const num = Number(value)
+  if (!Number.isFinite(num)) return `${value}万`
+  return `${num.toLocaleString('zh-CN', { maximumFractionDigits: 2 })}万`
+}
+
+function locationLabel(item: { longitude: number | null; latitude: number | null }): string {
+  return item.longitude !== null && item.latitude !== null ? '已定位' : '未定位'
+}
+
+watch([
+  selectedGrids,
+  () => regionStore.areaPath,
+  () => regionStore.outlet,
+  () => filterStore.entityTypes,
+  () => filterStore.estdateRange,
+  () => filterStore.industryCodes,
+  () => filterStore.registeredCapital,
+  () => filterStore.customerType,
+  () => filterStore.postalServices
+], () => load(true), { deep: true, immediate: true })
+
+onBeforeUnmount(() => {
+  requestSeq++
+  if (searchTimer) clearTimeout(searchTimer)
+})
 </script>
 
 <template>
   <div class="entity-data">
-    <div v-if="!hasSelection" class="empty-state">
+    <div class="search-bar">
+      <van-search
+        v-model="keyword"
+        shape="round"
+        placeholder="搜索主体名称或地址"
+        :clearable="true"
+        @update:model-value="onSearchInput"
+      />
+    </div>
+
+    <div v-if="!queryBlock" class="notice-bar">
+      当前按所选{{ regionStore.hasSelection ? '区域' : '' }}{{ regionStore.hasSelection && selectedGrids.length ? '与' : '' }}{{ selectedGrids.length ? '网格' : '' }}范围查询，仅包含已补充经纬度的主体
+    </div>
+
+    <div v-if="queryBlock" class="empty-state">
       <van-icon name="notes-o" size="36" color="#c8c9cc" />
-      <p>{{ emptyMessage }}</p>
+      <p>{{ queryBlock }}</p>
     </div>
 
     <div v-else-if="loading" class="loading-state">
       <van-loading type="spinner" size="24px">加载数据中...</van-loading>
     </div>
 
+    <div v-else-if="errorMessage" class="empty-state">
+      <van-icon name="warning-o" size="36" color="#ee0a24" />
+      <p>{{ errorMessage }}</p>
+      <van-button size="small" type="primary" plain round @click="load(true)">重试</van-button>
+    </div>
+
+    <div v-else-if="entityData.length === 0" class="empty-state">
+      <van-icon name="notes-o" size="36" color="#c8c9cc" />
+      <p>所选范围内未查询到有坐标且符合筛选条件的主体，请确认主体经纬度已补充</p>
+    </div>
+
     <div v-else class="list-container">
       <div class="list-header">
-        <span class="count-text">共找到 {{ entityData.length }} 家主体</span>
+        <span class="count-text">已加载 {{ entityData.length }} 家主体{{ hasMore ? '（还有更多）' : '' }}</span>
       </div>
 
       <div
@@ -248,31 +260,23 @@ function onFollowUpSave() {
       >
         <div class="card-title-row">
           <h4 class="card-title">{{ item.name }}</h4>
-          <van-tag :type="item.isCustomer ? 'success' : 'primary'" plain>
-            {{ item.isCustomer ? '邮政客户' : '非邮政客户' }}
+          <van-tag :type="item.longitude !== null ? 'success' : 'default'" plain>
+            {{ locationLabel(item) }}
           </van-tag>
         </div>
 
         <div class="card-tags">
-          <van-tag color="#f0f7ff" text-color="#1989fa">{{ item.entityType }}</van-tag>
-          <van-tag color="#f0f7ff" text-color="#1989fa">{{ item.hyclass }}</van-tag>
-          <template v-if="item.isCustomer && item.businessTypes.length > 0">
-            <van-tag
-              v-for="bt in item.businessTypes"
-              :key="bt"
-              color="#fff7e6"
-              text-color="#fa8c16"
-            >{{ bt }}</van-tag>
-          </template>
+          <van-tag v-if="item.entityType" color="#f0f7ff" text-color="#1989fa">{{ item.entityType }}</van-tag>
+          <van-tag v-if="item.hyclass" color="#f0f7ff" text-color="#1989fa">{{ item.hyclass }}</van-tag>
         </div>
 
         <p class="card-address">
-          <van-icon name="location-o" /> {{ item.address }}
+          <van-icon name="location-o" /> {{ item.address || '地址未登记' }}
         </p>
         <div class="card-bottom">
           <div class="card-meta">
-            <p class="card-date">成立：{{ item.estdate }}</p>
-            <p class="card-capital">注册资金：{{ formatCapital(item.registeredCapital) }}</p>
+            <p class="card-date">成立：{{ item.estdate || '—' }}</p>
+            <p class="card-capital">注册资本：{{ formatCapital(item.registeredCapital) }}</p>
           </div>
           <div class="card-actions">
             <van-button
@@ -293,6 +297,20 @@ function onFollowUpSave() {
           </div>
         </div>
       </div>
+
+      <div class="load-more">
+        <van-button
+          v-if="hasMore"
+          size="small"
+          plain
+          round
+          :loading="loadingMore"
+          @click="load(false)"
+        >
+          加载更多
+        </van-button>
+        <span v-else class="no-more">已到最后一页</span>
+      </div>
     </div>
 
     <!-- 跟进记录页 -->
@@ -311,10 +329,9 @@ function onFollowUpSave() {
         />
         <div class="followup-header">
           <h3>{{ followUpItem.name }}</h3>
-          <p><van-icon name="location-o" /> {{ followUpItem.address }}</p>
+          <p><van-icon name="location-o" /> {{ followUpItem.address || '地址未登记' }}</p>
         </div>
         <div class="followup-body">
-          <!-- 是否走访 -->
           <div class="follow-section">
             <div class="follow-label">是否走访</div>
             <van-radio-group v-model="followForm.visited" direction="horizontal" class="follow-radio">
@@ -336,7 +353,6 @@ function onFollowUpSave() {
             </div>
           </div>
 
-          <!-- 是否建联 -->
           <div class="follow-section">
             <div class="follow-label">是否建联</div>
             <van-radio-group v-model="followForm.connected" direction="horizontal" class="follow-radio">
@@ -356,14 +372,12 @@ function onFollowUpSave() {
               </div>
               <van-field v-model="followForm.contactMethodCustom" placeholder="自定义建联方式（选填）" class="custom-input" />
 
-              <!-- 客户姓名 -->
               <van-field
                 v-model="followForm.customerName"
                 placeholder="请输入客户姓名"
                 class="custom-input"
                 style="margin-top:8px"
               />
-              <!-- 联系方式 -->
               <van-field
                 v-model="followForm.customerPhone"
                 type="tel"
@@ -373,7 +387,6 @@ function onFollowUpSave() {
             </div>
           </div>
 
-          <!-- 跟进结果 -->
           <div class="follow-section">
             <div class="follow-label">跟进结果</div>
             <div class="preset-tags">
@@ -388,7 +401,6 @@ function onFollowUpSave() {
             <van-field v-model="followForm.resultCustom" placeholder="自定义跟进结果（选填）" class="custom-input" />
           </div>
 
-          <!-- 备注 -->
           <div class="follow-section">
             <div class="follow-label">备注</div>
             <textarea
@@ -399,7 +411,7 @@ function onFollowUpSave() {
           </div>
         </div>
         <div class="followup-footer">
-          <van-button type="primary" block round @click="onFollowUpSave">完成</van-button>
+          <van-button type="primary" block round :loading="savingFollowUp" @click="onFollowUpSave">完成</van-button>
         </div>
       </div>
     </van-popup>
@@ -416,24 +428,15 @@ function onFollowUpSave() {
         <h3 class="detail-title">{{ currentItem.name }}</h3>
 
         <div class="detail-tags">
-          <van-tag :type="currentItem.isCustomer ? 'success' : 'default'">
-            {{ currentItem.isCustomer ? '邮政客户' : '非邮政客户' }}
-          </van-tag>
-          <van-tag plain type="primary">{{ currentItem.entityType }}</van-tag>
-          <van-tag plain type="primary">{{ currentItem.hyclass }}</van-tag>
-          <template v-if="currentItem.isCustomer && currentItem.businessTypes.length > 0">
-            <van-tag
-              v-for="bt in currentItem.businessTypes"
-              :key="bt"
-              type="warning"
-            >{{ bt }}</van-tag>
-          </template>
+          <van-tag plain type="primary" v-if="currentItem.entityType">{{ currentItem.entityType }}</van-tag>
+          <van-tag plain type="primary" v-if="currentItem.hyclass">{{ currentItem.hyclass }}</van-tag>
+          <van-tag :type="currentItem.longitude !== null ? 'success' : 'default'">{{ locationLabel(currentItem) }}</van-tag>
         </div>
 
         <div class="detail-section">
           <div class="detail-item">
             <span class="label">成立日期</span>
-            <span class="value">{{ currentItem.estdate }}</span>
+            <span class="value">{{ currentItem.estdate || '—' }}</span>
           </div>
           <div class="detail-item">
             <span class="label">注册资本</span>
@@ -441,11 +444,27 @@ function onFollowUpSave() {
           </div>
           <div class="detail-item full-width">
             <span class="label">注册地址</span>
-            <span class="value"><van-icon name="location-o" /> {{ currentItem.address }}</span>
+            <span class="value"><van-icon name="location-o" /> {{ currentItem.address || '地址未登记' }}</span>
+          </div>
+          <div class="detail-item full-width">
+            <span class="label">统一社会信用代码</span>
+            <span class="value">{{ detail?.creditCode || '—' }}</span>
+          </div>
+          <div class="detail-item">
+            <span class="label">登记状态</span>
+            <span class="value">{{ detail?.regStatus || '—' }}</span>
+          </div>
+          <div class="detail-item">
+            <span class="label">中心点坐标</span>
+            <span class="value">
+              {{ currentItem.longitude !== null ? `${currentItem.longitude}, ${currentItem.latitude}` : '未回填' }}
+            </span>
           </div>
           <div class="detail-item full-width">
             <span class="label">经营范围</span>
-            <span class="value desc">{{ currentItem.businessscope }}</span>
+            <span v-if="detailLoading" class="value desc">加载中...</span>
+            <span v-else-if="detailError" class="value desc error-text">{{ detailError }}</span>
+            <span v-else class="value desc">{{ detail?.businessscope || '—' }}</span>
           </div>
         </div>
       </div>
@@ -455,13 +474,17 @@ function onFollowUpSave() {
 
 <style scoped>
 .entity-data { height: 100%; display: flex; flex-direction: column; }
-.filter-bar { flex-shrink: 0; border-bottom: 1px solid #f5f6f7; }
+.search-bar { flex-shrink: 0; }
+.notice-bar {
+  flex-shrink: 0; display: flex; flex-direction: column; gap: 2px;
+  padding: 6px 12px; background: #fffbe6; color: #8c6d1f; font-size: 11px; line-height: 1.4;
+}
 .empty-state, .loading-state {
   flex: 1; display: flex; flex-direction: column; align-items: center;
-  justify-content: center; padding: 32px 16px;
+  justify-content: center; gap: 8px; padding: 32px 16px;
   color: var(--color-text-secondary); font-size: 13px; text-align: center;
 }
-.empty-state p { margin-top: 8px; }
+.empty-state p { margin: 0; }
 .list-container { padding: 12px; }
 .list-header { margin-bottom: 12px; font-size: 13px; color: var(--color-text-secondary); }
 .data-card {
@@ -477,6 +500,9 @@ function onFollowUpSave() {
 .card-meta { display: flex; flex-direction: column; gap: 2px; }
 .card-date, .card-capital { margin: 0; font-size: 12px; color: #969799; display: flex; align-items: center; gap: 4px; }
 .card-actions { display: flex; gap: 6px; }
+.load-more { display: flex; justify-content: center; padding: 4px 0 16px; }
+.no-more { font-size: 12px; color: #c8c9cc; }
+.error-text { color: #ee0a24; }
 /* Follow-up */
 .followup-page { display: flex; flex-direction: column; height: 100%; overflow: hidden; background: #f7f8fa; }
 .followup-header { flex-shrink: 0; padding: 16px; background: #fff; border-bottom: 1px solid #ebedf0; }
